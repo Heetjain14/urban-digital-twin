@@ -1,0 +1,38 @@
+simulation:
+  city_name: "SmartCity District Alpha"
+  tick_rate_seconds: 60          # 1 tick = 1 real minute
+  total_ticks: 10080             # 7 days
+  seed: 42
+
+  # City grid
+  grid_width: 50
+  grid_height: 50
+  num_zones: 5                   # Residential, Commercial, Industrial, Campus, Transit
+
+  # Agent counts
+  num_vehicles: 200
+  num_pedestrians: 500
+  num_resource_nodes: 10
+
+  # Road graph
+  use_osm: false             # set true when osmnx is available
+  osm_city: " Mumbai, India"
+  osm_radius_m: 1500
+  synthetic_nodes: 40
+  synthetic_edges: 80
+
+  # Traffic light cycle (seconds, used as baseline)
+  default_green_ns: 30
+  default_green_ew: 30
+
+  # Scenarios
+  scenario_active: null           # null | rain | road_closure | mass_event | power_outage
+
+weather:
+  update_interval_ticks: 60      # weather changes every hour
+  initial_condition: clear       # clear | light_rain | heavy_rain
+  temperature_c: 22.0
+
+logging:
+  level: INFO
+  log_file: logs/simulation.log

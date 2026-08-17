@@ -1,0 +1,45 @@
+traffic_lstm:
+  input_window: 24        # hours of history
+  hidden_size: 128
+  num_layers: 2
+  dropout: 0.2
+  batch_size: 64
+  learning_rate: 0.001
+  epochs: 50
+  patience: 10            # early stopping
+
+energy_xgboost:
+  n_estimators: 300
+  max_depth: 6
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+
+water_xgboost:
+  n_estimators: 200
+  max_depth: 5
+  learning_rate: 0.05
+
+# Graph Attention Network for congestion
+gat:
+  in_channels: 5
+  hidden_channels: 64
+  out_channels: 1
+  heads: 4
+  dropout: 0.3
+  epochs: 30
+  learning_rate: 0.005
+
+# Anomaly detection
+isolation_forest:
+  n_estimators: 200
+  contamination: 0.02
+  random_state: 42
+
+lstm_autoencoder:
+  input_size: 1
+  hidden_size: 64
+  num_layers: 2
+  sequence_length: 24
+  epochs: 30
+  threshold_sigma: 3.0

@@ -1,0 +1,27 @@
+{
+  "benchmark": {
+    "total_ticks": 4320,
+    "simulated_days": 3,
+    "wall_time_seconds": 25.91,
+    "ticks_per_second": 166.7,
+    "agents": 458,
+    "road_nodes": 24,
+    "road_edges": 124
+  },
+  "traffic": {
+    "avg_speed_kmh": 45.87,
+    "min_speed_kmh": 17.27,
+    "max_speed_kmh": 70.0
+  },
+  "resources": {
+    "avg_energy_kwh": 3436.7,
+    "peak_energy_kwh": 4949.9
+  },
+  "anomalies": {
+    "total_alerts": 19,
+    "by_severity": {
+      "HIGH": 1,
+      "MEDIUM": 18
+    }
+  }
+}
