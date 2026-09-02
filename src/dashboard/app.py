@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -34,24 +35,15 @@ from plotly.subplots import make_subplots
 # PROJECT PATH
 # =============================================================================
 
-# =============================================================================
-# PROJECT PATH
-# =============================================================================
-
-from pathlib import Path
-import sys
-
 # app.py is located at:
 # project_root/src/dashboard/app.py
 #
-# Therefore:
 # parents[0] = dashboard
 # parents[1] = src
 # parents[2] = project_root
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# Add project root to Python path
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -147,19 +139,15 @@ if "running" not in st.session_state:
 if "ticks_run" not in st.session_state:
     st.session_state.ticks_run = 0
 
+if "map_mode_initialized" not in st.session_state:
+    st.session_state.map_mode_initialized = False
+
+if "last_map_mode" not in st.session_state:
+    st.session_state.last_map_mode = None
+
 
 # =============================================================================
 # SYNTHETIC MAP BOUNDARIES
-# =============================================================================
-#
-# These are ONLY used when the simulation is running on the synthetic graph.
-#
-# For OSM graphs:
-#     x = longitude
-#     y = latitude
-#
-# For synthetic graphs:
-#     x/y = simulation coordinates from approximately 0-50
 # =============================================================================
 
 MAP_LAT_MIN = 18.88
@@ -177,6 +165,9 @@ def sim_to_latlon(x, y):
     """
     Convert synthetic simulation coordinates to
     approximate Mumbai latitude/longitude.
+
+    IMPORTANT:
+    This function is ONLY used for synthetic coordinates.
     """
 
     x = float(np.clip(x, 0, 50))
@@ -210,8 +201,13 @@ def graph_xy_to_latlon(model, x, y):
         which are converted to Mumbai lat/lon.
     """
 
-    if model.road_graph.is_osm_graph:
-
+    if bool(
+        getattr(
+            model.road_graph,
+            "is_osm_graph",
+            False,
+        )
+    ):
         return float(y), float(x)
 
     return sim_to_latlon(x, y)
@@ -251,11 +247,15 @@ def get_node_latlon(model, node_id):
 # =============================================================================
 
 @st.cache_resource
-def get_simulation(use_osm_override=None):
+def get_simulation(use_osm_override=False):
+    """
+    Create and cache a simulation for the selected map mode.
+
+    The boolean argument is deliberately part of the cache key so
+    Synthetic and OSM simulations are kept separate.
+    """
 
     import yaml
-
-    from pathlib import Path
 
     from src.simulation_engine.city_model import CityModel
 
@@ -270,13 +270,7 @@ def get_simulation(use_osm_override=None):
     # Configuration
     # -------------------------------------------------------------------------
 
-    config_path = Path(
-        os.path.join(
-            PROJECT_ROOT,
-            "config",
-            "simulation.yaml",
-        )
-    )
+    config_path = PROJECT_ROOT / "config" / "simulation.yaml"
 
     if config_path.exists():
 
@@ -296,8 +290,6 @@ def get_simulation(use_osm_override=None):
                 "num_pedestrians": 300,
                 "num_resource_nodes": 5,
 
-                # IMPORTANT:
-                # Set this to True for OSM
                 "use_osm": False,
 
                 "osm_place": "Mumbai, India",
@@ -311,12 +303,24 @@ def get_simulation(use_osm_override=None):
         }
 
     # -------------------------------------------------------------------------
-    # Apply dashboard-selected map mode.
-    # The sidebar selection is authoritative for this dashboard instance.
+    # Make sure configuration exists
     # -------------------------------------------------------------------------
-    if use_osm_override is not None:
-        cfg.setdefault("simulation", {})
-        cfg["simulation"]["use_osm"] = bool(use_osm_override)
+
+    cfg.setdefault(
+        "simulation",
+        {},
+    )
+
+    # -------------------------------------------------------------------------
+    # Dashboard map selector is authoritative.
+    #
+    # True  -> OpenStreetMap
+    # False -> Synthetic
+    # -------------------------------------------------------------------------
+
+    cfg["simulation"]["use_osm"] = bool(
+        use_osm_override
+    )
 
     # -------------------------------------------------------------------------
     # Create simulation
@@ -345,6 +349,72 @@ def get_simulation(use_osm_override=None):
         res_detector,
         analyzer,
     )
+
+
+# =============================================================================
+# MAP MODE RESET
+# =============================================================================
+
+def reset_simulation_for_map_mode():
+    """
+    Completely reset dashboard simulation state when the user changes
+    between Synthetic and OpenStreetMap modes.
+
+    This prevents the old map/model from being reused after switching.
+    """
+
+    # Clear cached simulation resources.
+    #
+    # This guarantees that switching back to a previous mode also creates
+    # a completely fresh simulation rather than restoring an old cached
+    # simulation object.
+    try:
+        get_simulation.clear()
+    except Exception:
+        pass
+
+    # Reset dashboard state.
+    st.session_state.model = None
+    st.session_state.tick_history = []
+    st.session_state.alert_history = []
+    st.session_state.running = False
+    st.session_state.ticks_run = 0
+
+
+def handle_map_mode_change():
+    """
+    Streamlit callback triggered whenever the radio selector changes.
+    """
+
+    selected_mode = st.session_state.get(
+        "map_mode",
+        "🏙️ Synthetic Road Network",
+    )
+
+    previous_mode = st.session_state.get(
+        "last_map_mode",
+        None,
+    )
+
+    # First initialization should not unnecessarily reset everything.
+    if previous_mode is None:
+
+        st.session_state.last_map_mode = (
+            selected_mode
+        )
+
+        st.session_state.map_mode_initialized = True
+
+        return
+
+    # Only reset when the user actually switches modes.
+    if selected_mode != previous_mode:
+
+        reset_simulation_for_map_mode()
+
+        st.session_state.last_map_mode = (
+            selected_mode
+        )
 
 
 # =============================================================================
@@ -396,14 +466,18 @@ with st.sidebar:
     st.divider()
 
     # =========================================================================
-    # MAP INFORMATION
+    # MAP MODE
     # =========================================================================
 
     st.markdown(
         "### 🗺️ Map"
     )
 
-    map_mode = st.selectbox(
+    st.caption(
+        "Select the road network used by the simulation."
+    )
+
+    map_mode = st.radio(
         "Map Mode",
         [
             "🏙️ Synthetic Road Network",
@@ -411,9 +485,16 @@ with st.sidebar:
         ],
         index=0,
         key="map_mode",
+        on_change=handle_map_mode_change,
     )
 
-    use_osm_override = map_mode == "🌍 OpenStreetMap"
+    use_osm_override = (
+        map_mode == "🌍 OpenStreetMap"
+    )
+
+    # =========================================================================
+    # MAP STATUS
+    # =========================================================================
 
     try:
 
@@ -421,24 +502,50 @@ with st.sidebar:
             use_osm_override
         )
 
-        if current_model.road_graph.is_osm_graph:
+        actual_osm = bool(
+            getattr(
+                current_model.road_graph,
+                "is_osm_graph",
+                False,
+            )
+        )
+
+        if use_osm_override and actual_osm:
 
             st.success(
-                "Real OpenStreetMap roads enabled"
+                "🌍 OpenStreetMap roads enabled"
             )
 
             st.caption(
-                "Road network loaded from OpenStreetMap."
+                "Real road network loaded from OpenStreetMap."
+            )
+
+        elif not use_osm_override and not actual_osm:
+
+            st.success(
+                "🏙️ Synthetic road network enabled"
+            )
+
+            st.caption(
+                "Using the local synthetic digital-twin road network."
+            )
+
+        elif use_osm_override and not actual_osm:
+
+            st.error(
+                "OSM mode requested, but simulation "
+                "returned a synthetic graph."
+            )
+
+            st.caption(
+                "Check OSMnx/network configuration."
             )
 
         else:
 
-            st.warning(
-                "Synthetic road network"
-            )
-
-            st.caption(
-                "Synthetic roads are being displayed "
+            st.error(
+                "Synthetic mode requested, but "
+                "simulation returned an OSM graph."
             )
 
     except Exception as exc:
@@ -474,7 +581,9 @@ with st.sidebar:
         type="primary",
     ):
 
-        model, _, _, _ = get_simulation(use_osm_override)
+        model, _, _, _ = get_simulation(
+            use_osm_override
+        )
 
         scenario_map = {
 
@@ -613,7 +722,9 @@ with col_status:
 def run_frame():
 
     model, alert_mgr, res_detector, analyzer = (
-        get_simulation(use_osm_override)
+        get_simulation(
+            use_osm_override
+        )
     )
 
     snap = None
@@ -671,6 +782,9 @@ def run_frame():
                 st.session_state.tick_history[-300:]
             )
 
+    # Keep session reference synchronized.
+    st.session_state.model = model
+
     return (
         snap,
         model,
@@ -700,9 +814,18 @@ col_map, col_right = st.columns(
 
 with col_map:
 
-    # Keep the heading consistent with the actual road graph mode.
+    # -------------------------------------------------------------------------
+    # Determine actual graph mode.
+    # -------------------------------------------------------------------------
+
     try:
-        _preview_model, _, _, _ = get_simulation(use_osm_override)
+
+        _preview_model, _, _, _ = (
+            get_simulation(
+                use_osm_override
+            )
+        )
+
         _preview_is_osm = bool(
             getattr(
                 _preview_model.road_graph,
@@ -710,7 +833,9 @@ with col_map:
                 False,
             )
         )
+
     except Exception:
+
         _preview_is_osm = False
 
     st.markdown(
@@ -768,40 +893,37 @@ def build_city_map(
         Uses real OpenStreetMap coordinates and basemap.
 
     Synthetic mode:
-        Uses a clean grey grid with simulation coordinates.
-        No OpenStreetMap background is displayed.
+        Uses a clean dark grid with simulation coordinates.
+
+    IMPORTANT:
+        The renderer uses road_graph.is_osm_graph as the source of truth.
     """
 
-    # ================================================================
-    # DETECT MAP MODE FROM THE ACTUAL ROAD GRAPH
-    # ================================================================
-    # The road graph is the source of truth for the renderer.  The
-    # previous implementation read model.config["simulation"]["use_osm"],
-    # which could disagree with road_graph.is_osm_graph and cause the
-    # dashboard to show an OSM basemap while the sidebar reported
-    # Synthetic mode.
+    # =========================================================================
+    # DETECT MAP MODE
+    # =========================================================================
 
     use_osm = bool(
-        getattr(model.road_graph, "is_osm_graph", False)
+        getattr(
+            model.road_graph,
+            "is_osm_graph",
+            False,
+        )
     )
-
-    # ================================================================
-    # CREATE FIGURE
-    # ================================================================
 
     fig = go.Figure()
 
     G = model.road_graph.G
 
-    # ================================================================
+    # =========================================================================
     # SYNTHETIC MODE
-    # ================================================================
+    # =========================================================================
 
     if not use_osm:
 
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # 1. SYNTHETIC ROAD NETWORK
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         edge_x = []
         edge_y = []
@@ -825,17 +947,21 @@ def build_city_map(
             ):
                 continue
 
-            edge_x.extend([
-                ux,
-                vx,
-                None,
-            ])
+            edge_x.extend(
+                [
+                    ux,
+                    vx,
+                    None,
+                ]
+            )
 
-            edge_y.extend([
-                uy,
-                vy,
-                None,
-            ])
+            edge_y.extend(
+                [
+                    uy,
+                    vy,
+                    None,
+                ]
+            )
 
         if edge_x:
 
@@ -853,9 +979,9 @@ def build_city_map(
                 )
             )
 
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # 2. CONGESTION
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         if show_heatmap_flag:
 
@@ -903,8 +1029,11 @@ def build_city_map(
                     continue
 
                 if congestion < 0.6:
+
                     congestion_color = "#ffaa00"
+
                 else:
+
                     congestion_color = "#ff3333"
 
                 fig.add_trace(
@@ -931,9 +1060,9 @@ def build_city_map(
                     )
                 )
 
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # 3. TRAFFIC LIGHTS
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         intersection_x = []
         intersection_y = []
@@ -989,10 +1118,13 @@ def build_city_map(
             )
 
             if phase == "NS_GREEN":
+
                 intersection_colors.append(
                     "#00aa55"
                 )
+
             else:
+
                 intersection_colors.append(
                     "#dd3333"
                 )
@@ -1017,9 +1149,9 @@ def build_city_map(
                 )
             )
 
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # 4. RESOURCE NODES
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         resources = snap.get(
             "resources",
@@ -1063,13 +1195,22 @@ def build_city_map(
             )
 
             if energy > 85:
-                resource_colors.append("#ff3333")
+
+                resource_colors.append(
+                    "#ff3333"
+                )
 
             elif energy > 70:
-                resource_colors.append("#ffaa00")
+
+                resource_colors.append(
+                    "#ffaa00"
+                )
 
             else:
-                resource_colors.append("#0088cc")
+
+                resource_colors.append(
+                    "#0088cc"
+                )
 
         if resource_x:
 
@@ -1091,9 +1232,9 @@ def build_city_map(
                 )
             )
 
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # 5. AGENTS
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         if show_agents_flag:
 
@@ -1102,9 +1243,9 @@ def build_city_map(
                 [],
             )
 
-            # --------------------------------------------------------
+            # -----------------------------------------------------------------
             # Vehicles
-            # --------------------------------------------------------
+            # -----------------------------------------------------------------
 
             vehicles = [
                 a
@@ -1143,16 +1284,19 @@ def build_city_map(
                 )
 
                 if speed < 10:
+
                     vehicle_colors.append(
                         "#ff3333"
                     )
 
                 elif speed < 30:
+
                     vehicle_colors.append(
                         "#ffaa00"
                     )
 
                 else:
+
                     vehicle_colors.append(
                         "#00aa55"
                     )
@@ -1177,9 +1321,9 @@ def build_city_map(
                     )
                 )
 
-            # --------------------------------------------------------
+            # -----------------------------------------------------------------
             # Pedestrians
-            # --------------------------------------------------------
+            # -----------------------------------------------------------------
 
             pedestrians = [
                 a
@@ -1200,11 +1344,15 @@ def build_city_map(
                     continue
 
                 pedestrian_x.append(
-                    float(pedestrian["x"])
+                    float(
+                        pedestrian["x"]
+                    )
                 )
 
                 pedestrian_y.append(
-                    float(pedestrian["y"])
+                    float(
+                        pedestrian["y"]
+                    )
                 )
 
             if pedestrian_x:
@@ -1222,9 +1370,9 @@ def build_city_map(
                     )
                 )
 
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # 6. ALERTS
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         for alert in (
             st.session_state.alert_history[-5:]
@@ -1274,9 +1422,9 @@ def build_city_map(
                 )
             )
 
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
         # 7. WEATHER
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
 
         weather_data = snap.get(
             "weather",
@@ -1305,15 +1453,14 @@ def build_city_map(
             "☀️",
         )
 
-        # ------------------------------------------------------------
-        # 8. DARK SYNTHETIC DIGITAL-TWIN GRID
-        # ------------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # 8. SYNTHETIC DIGITAL-TWIN GRID
+        # ---------------------------------------------------------------------
 
         fig.update_layout(
 
             height=550,
 
-            # Dark digital-twin background
             paper_bgcolor="#070b12",
 
             plot_bgcolor="#070b12",
@@ -1335,6 +1482,7 @@ def build_city_map(
             ),
 
             title=dict(
+
                 text=(
                     f"{weather_icon} "
                     f"{snap['timestamp_sim']} | "
@@ -1360,61 +1508,41 @@ def build_city_map(
 
             xaxis=dict(
                 range=[0, 50],
-
                 title="",
-
                 showgrid=True,
-
                 gridcolor="#26344a",
-
                 gridwidth=1,
-
                 zeroline=False,
-
                 showticklabels=False,
-
                 fixedrange=False,
             ),
 
             yaxis=dict(
                 range=[0, 50],
-
                 title="",
-
                 showgrid=True,
-
                 gridcolor="#26344a",
-
                 gridwidth=1,
-
                 zeroline=False,
-
                 showticklabels=False,
-
                 scaleanchor="x",
-
                 scaleratio=1,
-
                 fixedrange=False,
             ),
         )
 
         return fig
 
-    # ========================================================================
+    # =========================================================================
     # OSM MODE
-    # ========================================================================
+    # =========================================================================
 
-    # Everything below is used ONLY when:
-    #
-    # use_osm == True
-    #
-    # Therefore synthetic mode never gets an OpenStreetMap background.
-    # ========================================================================
+    # Everything below is ONLY used when the actual graph is an OSM graph.
+    # Synthetic mode returns above before reaching this section.
 
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Simulation roads
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     edge_lat = []
     edge_lon = []
@@ -1441,21 +1569,25 @@ def build_city_map(
         ):
             continue
 
-        # OSM coordinates:
+        # OSM:
         # x = longitude
         # y = latitude
 
-        edge_lat.extend([
-            uy,
-            vy,
-            None,
-        ])
+        edge_lat.extend(
+            [
+                uy,
+                vy,
+                None,
+            ]
+        )
 
-        edge_lon.extend([
-            ux,
-            vx,
-            None,
-        ])
+        edge_lon.extend(
+            [
+                ux,
+                vx,
+                None,
+            ]
+        )
 
     if edge_lat:
 
@@ -1473,9 +1605,9 @@ def build_city_map(
             )
         )
 
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Traffic lights
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     intersection_lat = []
     intersection_lon = []
@@ -1490,11 +1622,17 @@ def build_city_map(
         node = G.nodes[iid]
 
         lat = float(
-            node.get("y", 0)
+            node.get(
+                "y",
+                0,
+            )
         )
 
         lon = float(
-            node.get("x", 0)
+            node.get(
+                "x",
+                0,
+            )
         )
 
         phase = (
@@ -1550,9 +1688,9 @@ def build_city_map(
             )
         )
 
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Agents
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     if show_agents_flag:
 
@@ -1643,9 +1781,9 @@ def build_city_map(
                 )
             )
 
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Resource nodes
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     resources = snap.get(
         "resources",
@@ -1701,9 +1839,9 @@ def build_city_map(
             )
         )
 
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Weather
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     weather_data = snap.get(
         "weather",
@@ -1732,9 +1870,9 @@ def build_city_map(
         "☀️",
     )
 
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # OSM layout
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     fig.update_layout(
 
@@ -1803,6 +1941,7 @@ def build_city_map(
 
     return fig
 
+
 # =============================================================================
 # RESOURCE CHART
 # =============================================================================
@@ -1810,13 +1949,16 @@ def build_city_map(
 def build_resource_chart(history):
 
     if not history:
+
         fig = go.Figure()
 
         fig.update_layout(
             height=220,
             paper_bgcolor="#0e1117",
             plot_bgcolor="#0e1117",
-            font=dict(color="#e2e8f0"),
+            font=dict(
+                color="#e2e8f0"
+            ),
         )
 
         return fig
@@ -1824,14 +1966,17 @@ def build_resource_chart(history):
     recent_history = history[-120:]
 
     ticks = [
-        h.get("tick", 0)
+        h.get(
+            "tick",
+            0
+        )
         for h in recent_history
     ]
 
     energy = [
         h.get(
             "total_energy_demand_kwh",
-            0
+            0,
         ) / 100
         for h in recent_history
     ]
@@ -1839,7 +1984,7 @@ def build_resource_chart(history):
     water = [
         h.get(
             "total_water_demand_m3h",
-            0
+            0,
         )
         for h in recent_history
     ]
@@ -1854,7 +1999,6 @@ def build_resource_chart(history):
         ],
     )
 
-    # Energy
     fig.add_trace(
         go.Scatter(
             x=ticks,
@@ -1872,7 +2016,6 @@ def build_resource_chart(history):
         col=1,
     )
 
-    # Water
     fig.add_trace(
         go.Scatter(
             x=ticks,
@@ -1924,6 +2067,7 @@ def build_resource_chart(history):
 
     return fig
 
+
 # =============================================================================
 # TRAFFIC CHART
 # =============================================================================
@@ -1931,13 +2075,16 @@ def build_resource_chart(history):
 def build_traffic_chart(history):
 
     if not history:
+
         fig = go.Figure()
 
         fig.update_layout(
             height=180,
             paper_bgcolor="#0e1117",
             plot_bgcolor="#0e1117",
-            font=dict(color="#e2e8f0"),
+            font=dict(
+                color="#e2e8f0"
+            ),
         )
 
         return fig
@@ -1945,14 +2092,17 @@ def build_traffic_chart(history):
     recent_history = history[-120:]
 
     ticks = [
-        h.get("tick", 0)
+        h.get(
+            "tick",
+            0
+        )
         for h in recent_history
     ]
 
     speeds = [
         h.get(
             "avg_vehicle_speed",
-            0
+            0,
         )
         for h in recent_history
     ]
@@ -1960,7 +2110,7 @@ def build_traffic_chart(history):
     moving = [
         h.get(
             "vehicles_moving",
-            0
+            0,
         )
         for h in recent_history
     ]
@@ -2033,6 +2183,8 @@ def build_traffic_chart(history):
     )
 
     return fig
+
+
 # =============================================================================
 # ALERT RENDERER
 # =============================================================================
@@ -2064,31 +2216,33 @@ def render_alerts(alerts):
 
     html_parts = []
 
-    for alert in reversed(alerts[-8:]):
+    for alert in reversed(
+        alerts[-8:]
+    ):
 
         severity = str(
             alert.get(
                 "severity",
-                "LOW"
+                "LOW",
             )
         ).upper()
 
         description = str(
             alert.get(
                 "description",
-                "Unknown alert"
+                "Unknown alert",
             )
         )
 
         tick = alert.get(
             "tick",
-            0
+            0,
         )
 
         confidence = float(
             alert.get(
                 "confidence",
-                0
+                0,
             )
         )
 
@@ -2098,12 +2252,12 @@ def render_alerts(alerts):
 
         css_class = severity_class.get(
             severity,
-            "alert-low"
+            "alert-low",
         )
 
         icon = severity_icon.get(
             severity,
-            "⚪"
+            "⚪",
         )
 
         html_parts.append(
@@ -2132,7 +2286,10 @@ def render_alerts(alerts):
 """
         )
 
-    return "".join(html_parts)
+    return "".join(
+        html_parts
+    )
+
 
 # =============================================================================
 # MAIN RENDER
@@ -2149,6 +2306,28 @@ except Exception as exc:
     )
 
     st.exception(exc)
+
+    st.stop()
+
+
+# =============================================================================
+# SAFETY CHECK
+# =============================================================================
+
+if snap is None:
+
+    st.error(
+        "Simulation did not return a valid snapshot."
+    )
+
+    st.stop()
+
+
+if "metrics" not in snap:
+
+    st.error(
+        "Simulation snapshot does not contain metrics."
+    )
 
     st.stop()
 
