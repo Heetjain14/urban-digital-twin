@@ -260,9 +260,4 @@ urban-digital-twin/
 
 ---
 
-## Author
 
-**Heet Jain** · 
-[LinkedIn](https://linkedin.com/in/
-heet-jain-4982323b6
-) · [GitHub](https://github.com/Heetjain14/Heetjain14)
