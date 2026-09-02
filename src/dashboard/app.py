@@ -251,7 +251,7 @@ def get_node_latlon(model, node_id):
 # =============================================================================
 
 @st.cache_resource
-def get_simulation():
+def get_simulation(use_osm_override=None):
 
     import yaml
 
@@ -298,7 +298,7 @@ def get_simulation():
 
                 # IMPORTANT:
                 # Set this to True for OSM
-                "use_osm": True,
+                "use_osm": False,
 
                 "osm_place": "Mumbai, India",
 
@@ -309,6 +309,14 @@ def get_simulation():
                 "default_green_ns": 30,
             }
         }
+
+    # -------------------------------------------------------------------------
+    # Apply dashboard-selected map mode.
+    # The sidebar selection is authoritative for this dashboard instance.
+    # -------------------------------------------------------------------------
+    if use_osm_override is not None:
+        cfg.setdefault("simulation", {})
+        cfg["simulation"]["use_osm"] = bool(use_osm_override)
 
     # -------------------------------------------------------------------------
     # Create simulation
@@ -395,9 +403,23 @@ with st.sidebar:
         "### 🗺️ Map"
     )
 
+    map_mode = st.selectbox(
+        "Map Mode",
+        [
+            "🏙️ Synthetic Road Network",
+            "🌍 OpenStreetMap",
+        ],
+        index=0,
+        key="map_mode",
+    )
+
+    use_osm_override = map_mode == "🌍 OpenStreetMap"
+
     try:
 
-        current_model, _, _, _ = get_simulation()
+        current_model, _, _, _ = get_simulation(
+            use_osm_override
+        )
 
         if current_model.road_graph.is_osm_graph:
 
@@ -452,7 +474,7 @@ with st.sidebar:
         type="primary",
     ):
 
-        model, _, _, _ = get_simulation()
+        model, _, _, _ = get_simulation(use_osm_override)
 
         scenario_map = {
 
@@ -591,7 +613,7 @@ with col_status:
 def run_frame():
 
     model, alert_mgr, res_detector, analyzer = (
-        get_simulation()
+        get_simulation(use_osm_override)
     )
 
     snap = None
@@ -678,8 +700,26 @@ col_map, col_right = st.columns(
 
 with col_map:
 
+    # Keep the heading consistent with the actual road graph mode.
+    try:
+        _preview_model, _, _, _ = get_simulation(use_osm_override)
+        _preview_is_osm = bool(
+            getattr(
+                _preview_model.road_graph,
+                "is_osm_graph",
+                False,
+            )
+        )
+    except Exception:
+        _preview_is_osm = False
+
     st.markdown(
-        "### 🗺️ Live OpenStreetMap City Map"
+        "### 🗺️ "
+        + (
+            "Live OpenStreetMap City Map"
+            if _preview_is_osm
+            else "Synthetic Digital Twin City Map"
+        )
     )
 
     map_placeholder = st.empty()
@@ -733,15 +773,16 @@ def build_city_map(
     """
 
     # ================================================================
-    # DETECT MAP MODE FROM CITYMODEL CONFIG
+    # DETECT MAP MODE FROM THE ACTUAL ROAD GRAPH
     # ================================================================
+    # The road graph is the source of truth for the renderer.  The
+    # previous implementation read model.config["simulation"]["use_osm"],
+    # which could disagree with road_graph.is_osm_graph and cause the
+    # dashboard to show an OSM basemap while the sidebar reported
+    # Synthetic mode.
 
-    use_osm = model.config.get(
-        "simulation",
-        {}
-    ).get(
-        "use_osm",
-        True
+    use_osm = bool(
+        getattr(model.road_graph, "is_osm_graph", False)
     )
 
     # ================================================================
