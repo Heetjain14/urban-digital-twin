@@ -2,7 +2,7 @@
 
 > A production-grade smart city simulation with five integrated AI layers — built to understand how systems like Siemens Xcelerator and Nvidia Omniverse work from the inside.
 
-[**🔴 Live Demo**](https://claude.ai/chat/YOUR_STREAMLIT_LINK) **·** [**📐 Architecture**](ARCHITECTURE.md) **·** [**📓 Notebooks**](notebooks/)
+[**🔴 Live Demo**](https://urban-digital-twin-4ybhnj9iwjer9rhnvjbrr3.streamlit.app/) **·** [**📐 Architecture**](ARCHITECTURE.md) **·** [**📓 Notebooks**](notebooks/)
 
 ---
 
