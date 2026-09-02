@@ -229,8 +229,7 @@ urban-digital-twin/
 ├── .env.example               # Environment variable template
 ├── .gitignore                 # Git ignore rules
 └── ARCHITECTURE.md            # Full technical breakdown of all AI layers
-```
-
+```  Screenshots               # A visual overview of the Urban Digital Twin dashboard, , AI                               analytics, and real-time urban activity.
 ---
 
 ## Performance

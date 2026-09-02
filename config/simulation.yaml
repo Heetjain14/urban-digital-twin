@@ -15,7 +15,7 @@ simulation:
   num_resource_nodes: 10
 
   # Road graph
-  use_osm: false             # set true when osmnx is available
+  use_osm: true          # set true when osmnx is available
   osm_city: " Mumbai, India"
   osm_radius_m: 1500
   synthetic_nodes: 40

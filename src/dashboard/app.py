@@ -1265,28 +1265,31 @@ def build_city_map(
         )
 
         # ------------------------------------------------------------
-        # 8. GREY SYNTHETIC GRID
+        # 8. DARK SYNTHETIC DIGITAL-TWIN GRID
         # ------------------------------------------------------------
 
         fig.update_layout(
 
             height=550,
 
-            paper_bgcolor="#d1d5db",
+            # Dark digital-twin background
+            paper_bgcolor="#070b12",
 
-            plot_bgcolor="#e5e7eb",
+            plot_bgcolor="#070b12",
 
             font=dict(
-                color="#1f2937"
+                color="#dbeafe"
             ),
 
             showlegend=True,
 
             legend=dict(
-                bgcolor="#f3f4f6",
+                bgcolor="#111827",
+                bordercolor="#26344a",
+                borderwidth=1,
                 font=dict(
                     size=10,
-                    color="#1f2937",
+                    color="#dbeafe",
                 ),
             ),
 
@@ -1300,9 +1303,10 @@ def build_city_map(
                     f"Temperature: "
                     f"{temperature:.1f}°C"
                 ),
+
                 font=dict(
                     size=13,
-                    color="#1f2937",
+                    color="#63b3ed",
                 ),
             ),
 
@@ -1315,20 +1319,42 @@ def build_city_map(
 
             xaxis=dict(
                 range=[0, 50],
-                title="X",
+
+                title="",
+
                 showgrid=True,
-                gridcolor="#9ca3af",
+
+                gridcolor="#26344a",
+
+                gridwidth=1,
+
                 zeroline=False,
+
+                showticklabels=False,
+
+                fixedrange=False,
             ),
 
             yaxis=dict(
                 range=[0, 50],
-                title="Y",
+
+                title="",
+
                 showgrid=True,
-                gridcolor="#9ca3af",
+
+                gridcolor="#26344a",
+
+                gridwidth=1,
+
                 zeroline=False,
+
+                showticklabels=False,
+
                 scaleanchor="x",
+
                 scaleratio=1,
+
+                fixedrange=False,
             ),
         )
 
