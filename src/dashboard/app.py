@@ -246,8 +246,14 @@ def get_node_latlon(model, node_id):
 # SIMULATION INITIALIZATION
 # =============================================================================
 
-@st.cache_resource
 def get_simulation(use_osm_override=False):
+    """
+    Return cached simulation for the selected map mode.
+    Keyed on use_osm_override so Synthetic and OSM are always separate objects.
+    """
+    cache_key = f"sim_cache_{bool(use_osm_override)}"
+    if cache_key in st.session_state and st.session_state[cache_key] is not None:
+        return st.session_state[cache_key]
     """
     Create and cache a simulation for the selected map mode.
 
@@ -343,12 +349,15 @@ def get_simulation(use_osm_override=False):
         model.road_graph
     )
 
-    return (
+    _result = (
         model,
         alert_mgr,
         res_detector,
         analyzer,
     )
+    cache_key = f"sim_cache_{bool(use_osm_override)}"
+    st.session_state[cache_key] = _result
+    return _result
 
 
 # =============================================================================
@@ -368,10 +377,9 @@ def reset_simulation_for_map_mode():
     # This guarantees that switching back to a previous mode also creates
     # a completely fresh simulation rather than restoring an old cached
     # simulation object.
-    try:
-        get_simulation.clear()
-    except Exception:
-        pass
+    # Clear both cached simulations from session state
+    for _key in ["sim_cache_True", "sim_cache_False"]:
+        st.session_state.pop(_key, None)
 
     # Reset dashboard state.
     st.session_state.model = None
